@@ -27,6 +27,11 @@ export async function loadSnapshots(): Promise<Snapshot[]> {
       description: item.description ?? null,
       url: item.url ?? null,
       fetchState: item.fetchState ?? (item.url ? 'failed' : 'none'),
+      pageSummary: item.pageSummary ?? null,
+      aiSummary: item.aiSummary ?? null,
+      aiState: item.aiState ?? 'idle',
+      aiError: item.aiError ?? null,
+      serviceMessage: item.serviceMessage ?? null,
     }));
   } catch {
     return [];

@@ -18,8 +18,17 @@ import {
 import FloatingMemo from './modules/floating-memo';
 import BackendResidentGuideModal from './src/components/BackendResidentGuideModal';
 import NoticeBanner from './src/components/NoticeBanner';
+import SettingsModal from './src/components/SettingsModal';
 import SnapshotCard from './src/components/SnapshotCard';
-import { checkUrlAlive, createPendingSnapshot, fetchPageMetadata } from './src/lib/url';
+import {
+  DEFAULT_AI_SETTINGS,
+  hasAIConfig,
+  loadAISettings,
+  summarizeWithAI,
+  type AISettings,
+} from './src/lib/ai';
+import { fetchPageFromBackend } from './src/lib/backend';
+import { checkUrlAlive, createPendingSnapshot } from './src/lib/url';
 import {
   loadFloatingEnabled,
   loadSnapshots,
@@ -53,6 +62,8 @@ export default function App() {
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [backendGuideVisible, setBackendGuideVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [aiSettings, setAISettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
 
   const snapshotsRef = useRef<Snapshot[]>([]);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,6 +71,7 @@ export default function App() {
   const pendingEnableRef = useRef(false);
   const backendGuideSuppressedRef = useRef(false);
   const backendHealthCheckInFlightRef = useRef(false);
+  const aiSettingsRef = useRef<AISettings>(DEFAULT_AI_SETTINGS);
 
   const topInset = Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0;
 
@@ -104,6 +116,27 @@ export default function App() {
   useEffect(() => {
     FloatingMemo.setDarkMode(isDark).catch(() => {});
   }, [isDark]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadAISettings()
+      .then((settings) => {
+        if (cancelled) return;
+        setAISettings(settings);
+        aiSettingsRef.current = settings;
+      })
+      .catch(() => {
+        // 安全存储不可用时保持未配置状态，不影响抓取和快照。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAISettingsSaved = useCallback((next: AISettings) => {
+    setAISettings(next);
+    aiSettingsRef.current = next;
+  }, []);
 
   const checkBackendHealth = useCallback(async () => {
     if (Platform.OS !== 'android' || backendHealthCheckInFlightRef.current) return;
@@ -231,15 +264,77 @@ export default function App() {
 
       if (!pending.url) return;
 
-      const metadata = await fetchPageMetadata(pending.url);
+      const backend = await fetchPageFromBackend(pending.url);
       if (!snapshotsRef.current.some((item) => item.id === pending.id)) return;
+
+      const backendSummary = backend.summary?.trim() ?? '';
+      const backendOk =
+        backend.code >= 200 &&
+        backend.code < 300 &&
+        Boolean(backendSummary);
+
+      if (!backendOk) {
+        const message = backend.message || '【错误翻译】本地抓取没有完成。';
+        const isNotFound = backend.code === 404 || backend.code === 410;
+        patchSnapshot(pending.id, {
+          title: backend.title?.trim() || pending.title,
+          fetchState: 'failed',
+          serviceMessage: message,
+          aiState: 'skipped',
+          aiSummary: null,
+          aiError: null,
+          dead: isNotFound,
+        });
+        showNotice(
+          {
+            kind: isNotFound ? 'dead' : 'info',
+            title: isNotFound ? '原网页已失效' : '本地抓取没有完成',
+            message,
+          },
+          7000,
+        );
+        return;
+      }
+
+      const pageTitle = backend.title?.trim() || pending.title;
+      const settingsForRequest = aiSettingsRef.current;
+      const aiReady = hasAIConfig(settingsForRequest);
+
       patchSnapshot(pending.id, {
-        title: metadata.title || pending.title,
-        description: metadata.description,
-        fetchState: metadata.ok ? 'ok' : 'failed',
+        title: pageTitle,
+        pageSummary: backendSummary,
+        description: backendSummary,
+        fetchState: 'ok',
+        serviceMessage: null,
+        dead: false,
+        aiState: aiReady ? 'loading' : 'skipped',
+        aiError: null,
       });
+
+      if (!aiReady) return;
+
+      const aiResult = await summarizeWithAI(settingsForRequest, {
+        title: pageTitle,
+        summary: backendSummary,
+        url: pending.url,
+      });
+      if (!snapshotsRef.current.some((item) => item.id === pending.id)) return;
+
+      if (aiResult.ok) {
+        patchSnapshot(pending.id, {
+          aiState: 'done',
+          aiSummary: aiResult.text,
+          aiError: null,
+        });
+      } else {
+        patchSnapshot(pending.id, {
+          aiState: 'error',
+          aiSummary: null,
+          aiError: aiResult.message,
+        });
+      }
     },
-    [commitSnapshots, patchSnapshot],
+    [commitSnapshots, patchSnapshot, showNotice],
   );
 
   // 首次加载：恢复本地列表与悬浮窗状态。
@@ -448,35 +543,53 @@ export default function App() {
           </Text>
         </View>
 
-        <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{ checked: floatingEnabled }}
-          accessibilityLabel={floatingEnabled ? '关闭悬浮窗' : '开启悬浮窗'}
-          onPress={toggleFloating}
-          style={({ pressed }) => [
-            styles.floatingPill,
-            {
-              backgroundColor: palette.surface,
-              borderColor: floatingEnabled ? palette.accent : palette.border,
-              opacity: pressed ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: floatingEnabled ? palette.success : palette.textSecondary },
-            ]}
-          />
-          <Text
-            style={[
-              styles.floatingText,
-              { color: floatingEnabled ? palette.accent : palette.textSecondary },
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="打开设置"
+            onPress={() => setSettingsVisible(true)}
+            style={({ pressed }) => [
+              styles.settingsButton,
+              {
+                backgroundColor: palette.surface,
+                borderColor: palette.border,
+                opacity: pressed ? 0.65 : 1,
+              },
             ]}
           >
-            悬浮窗 {floatingEnabled ? '开' : '关'}
-          </Text>
-        </Pressable>
+            <Text style={[styles.settingsIcon, { color: palette.text }]}>⚙</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityState={{ checked: floatingEnabled }}
+            accessibilityLabel={floatingEnabled ? '关闭悬浮窗' : '开启悬浮窗'}
+            onPress={toggleFloating}
+            style={({ pressed }) => [
+              styles.floatingPill,
+              {
+                backgroundColor: palette.surface,
+                borderColor: floatingEnabled ? palette.accent : palette.border,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: floatingEnabled ? palette.success : palette.textSecondary },
+              ]}
+            />
+            <Text
+              style={[
+                styles.floatingText,
+                { color: floatingEnabled ? palette.accent : palette.textSecondary },
+              ]}
+            >
+              悬浮窗 {floatingEnabled ? '开' : '关'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       <FlatList
@@ -567,6 +680,14 @@ export default function App() {
         onOpenSettings={() => void openBackendBatterySettings()}
         onDismiss={dismissBackendGuide}
       />
+
+      <SettingsModal
+        visible={settingsVisible}
+        palette={palette}
+        initialSettings={aiSettings}
+        onClose={() => setSettingsVisible(false)}
+        onSaved={handleAISettingsSaved}
+      />
     </View>
   );
 }
@@ -596,6 +717,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 0.3,
     marginTop: 3,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  settingsButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsIcon: {
+    fontSize: 17,
+    lineHeight: 20,
+    marginTop: -1,
   },
   floatingPill: {
     flexDirection: 'row',
