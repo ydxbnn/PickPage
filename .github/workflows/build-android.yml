@@ -117,6 +117,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
+          # Keep Gradle within GitHub runner memory limits
           export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
           ./gradlew assembleRelease --no-daemon --stacktrace
 
