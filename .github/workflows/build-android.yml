@@ -44,7 +44,7 @@ jobs:
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "platform-tools" "build-tools;34.0.0" "ndk;25.1.8937393" "cmake;3.22.1"
+          sdkmanager "platform-tools" "build-tools;34.0.0" "build-tools;36.0.0" "ndk;25.1.8937393" "cmake;3.22.1"
           sdkmanager "platforms;android-36"
 
       - name: Install npm dependencies
@@ -55,9 +55,12 @@ jobs:
 
       - name: Pin Android compile SDK
         run: |
-          echo "android.compileSdkVersion=36" >> android/gradle.properties
-          echo "android.buildToolsVersion=34.0.0" >> android/gradle.properties
+          printf '\nandroid.compileSdkVersion=36\nandroid.buildToolsVersion=36.0.0\n' >> android/gradle.properties
           grep -E '^android\.(compileSdkVersion|buildToolsVersion)=' android/gradle.properties
+          if grep -q '^expo.inlineModules.watchedDirectories=.*android\.compileSdkVersion' android/gradle.properties; then
+            echo 'gradle.properties corruption detected'
+            exit 1
+          fi
 
       - name: Configure optional release signing
         env:
@@ -109,6 +112,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
+          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
           ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Find APK
