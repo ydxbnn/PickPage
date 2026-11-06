@@ -37,19 +37,27 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager "platform-tools" "build-tools;34.0.0" "ndk;25.1.8937393" "cmake;3.22.1"
-          sdkmanager "platforms;android-34"
+          sdkmanager "platforms;android-36"
 
       - name: Install npm dependencies
         run: npm ci --no-audit --no-fund
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
+
+      - name: Pin Android compile SDK
+        run: |
+          echo "android.compileSdkVersion=36" >> android/gradle.properties
+          echo "android.buildToolsVersion=34.0.0" >> android/gradle.properties
+          grep -E '^android\.(compileSdkVersion|buildToolsVersion)=' android/gradle.properties
 
       - name: Configure optional release signing
         env:
