@@ -3,7 +3,10 @@ default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: android
 workflows:
   primary:
+    description: "Build the React Native APK"
     steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
     - git-clone: {}
     - script:
         title: Install dependencies and Prebuild Expo
@@ -28,6 +31,7 @@ workflows:
         inputs:
         - content: |-
             #!/usr/bin/env bash
+            set -ex
             mkdir -p $BITRISE_DEPLOY_DIR
             cp android/app/build/outputs/apk/release/*.apk $BITRISE_DEPLOY_DIR/
     - deploy-to-bitrise-io@2: {}
