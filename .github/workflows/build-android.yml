@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build-android:
-    name: Build release APK
+    name: Build debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -56,9 +56,9 @@ jobs:
       - name: Pin Android compile SDK
         run: |
           if grep -q '^org.gradle.jvmargs=' android/gradle.properties; then
-            sed -i 's#^org.gradle.jvmargs=.*#org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m#' android/gradle.properties
+            sed -i 's#^org.gradle.jvmargs=.*#org.gradle.jvmargs=-Xmx2048m#' android/gradle.properties
           else
-            printf '\norg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m\n' >> android/gradle.properties
+            printf '\norg.gradle.jvmargs=-Xmx2048m\n' >> android/gradle.properties
           fi
           printf '\nandroid.compileSdkVersion=36\nandroid.buildToolsVersion=36.0.0\n' >> android/gradle.properties
           grep -E '^android\.(compileSdkVersion|buildToolsVersion)=' android/gradle.properties
@@ -109,7 +109,7 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Build release APK
+      - name: Build debug APK
         working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -118,18 +118,18 @@ jobs:
         run: |
           chmod +x gradlew
           # Keep Gradle within GitHub runner memory limits
-          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2g"
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Find APK
         run: |
-          find android/app/build/outputs/apk/release -name '*.apk' -type f -print
-          test -n "$(find android/app/build/outputs/apk/release -name '*.apk' -type f -print -quit)"
+          find android/app/build/outputs/apk/debug -name '*.apk' -type f -print
+          test -n "$(find android/app/build/outputs/apk/debug -name '*.apk' -type f -print -quit)"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pickpage-release-${{ github.run_number }}
-          path: android/app/build/outputs/apk/release/*.apk
+          name: pickpage-debug-${{ github.run_number }}
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
