@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "PickPage",
-    "slug": "pickpage",
+    "slug": "pickpage-app",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
