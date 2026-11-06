@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 
 import FloatingMemo from './modules/floating-memo';
+import BackendResidentGuideModal from './src/components/BackendResidentGuideModal';
 import NoticeBanner from './src/components/NoticeBanner';
 import SnapshotCard from './src/components/SnapshotCard';
 import { checkUrlAlive, createPendingSnapshot, fetchPageMetadata } from './src/lib/url';
@@ -27,6 +28,11 @@ import {
 } from './src/storage';
 import { darkPalette, lightPalette } from './src/theme';
 import type { Notice, Snapshot } from './src/types';
+
+const BACKEND_HEALTH_URL = 'http://127.0.0.1:8080/health';
+const BACKEND_HEALTH_TIMEOUT_MS = 2500;
+const BACKEND_GUIDE_START_DELAY_MS = 1200;
+const BACKEND_HEALTH_POLL_MS = 60000;
 
 async function ensureNotificationPermission() {
   if (Platform.OS !== 'android' || Number(Platform.Version) < 33) return;
@@ -46,11 +52,14 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [backendGuideVisible, setBackendGuideVisible] = useState(false);
 
   const snapshotsRef = useRef<Snapshot[]>([]);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeIdRef = useRef(0);
   const pendingEnableRef = useRef(false);
+  const backendGuideSuppressedRef = useRef(false);
+  const backendHealthCheckInFlightRef = useRef(false);
 
   const topInset = Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0;
 
@@ -95,6 +104,105 @@ export default function App() {
   useEffect(() => {
     FloatingMemo.setDarkMode(isDark).catch(() => {});
   }, [isDark]);
+
+  const checkBackendHealth = useCallback(async () => {
+    if (Platform.OS !== 'android' || backendHealthCheckInFlightRef.current) return;
+    backendHealthCheckInFlightRef.current = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), BACKEND_HEALTH_TIMEOUT_MS);
+    try {
+      const response = await fetch(BACKEND_HEALTH_URL, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error(`health ${response.status}`);
+      setBackendGuideVisible(false);
+    } catch {
+      if (!backendGuideSuppressedRef.current) {
+        setBackendGuideVisible(true);
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      backendHealthCheckInFlightRef.current = false;
+    }
+  }, []);
+
+  // 启动、回到前台与定时轮询本地 Python 服务；断线时给出一次非强制引导。
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !loaded) return;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let initialTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const runCheck = () => {
+      void checkBackendHealth();
+    };
+
+    const startPolling = (delayMs = 0) => {
+      if (pollTimer) return;
+      if (delayMs > 0) {
+        initialTimer = setTimeout(runCheck, delayMs);
+      } else {
+        runCheck();
+      }
+      pollTimer = setInterval(runCheck, BACKEND_HEALTH_POLL_MS);
+    };
+
+    const stopPolling = () => {
+      if (initialTimer) {
+        clearTimeout(initialTimer);
+        initialTimer = null;
+      }
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') startPolling(0);
+      else stopPolling();
+    });
+
+    startPolling(BACKEND_GUIDE_START_DELAY_MS);
+
+    return () => {
+      stopPolling();
+      appStateSub.remove();
+    };
+  }, [checkBackendHealth, loaded]);
+
+  const dismissBackendGuide = useCallback(() => {
+    backendGuideSuppressedRef.current = true;
+    setBackendGuideVisible(false);
+  }, []);
+
+  const openBackendBatterySettings = useCallback(async () => {
+    backendGuideSuppressedRef.current = true;
+    setBackendGuideVisible(false);
+
+    try {
+      if (Platform.OS === 'android') {
+        const androidLinking = Linking as unknown as {
+          sendIntent?: (action: string) => Promise<void>;
+        };
+        if (typeof androidLinking.sendIntent === 'function') {
+          await androidLinking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS');
+          return;
+        }
+      }
+      await Linking.openSettings();
+    } catch {
+      try {
+        await Linking.openSettings();
+      } catch {
+        Alert.alert(
+          '无法打开系统设置',
+          '请手动前往系统设置 → 应用 → PickPage → 电池，选择“不限制”或“允许后台运行”。',
+        );
+      }
+    }
+  }, []);
 
   const startWatcher = useCallback(async () => {
     try {
@@ -452,6 +560,13 @@ export default function App() {
           onDismiss={dismissNotice}
         />
       ) : null}
+
+      <BackendResidentGuideModal
+        visible={backendGuideVisible}
+        palette={palette}
+        onOpenSettings={() => void openBackendBatterySettings()}
+        onDismiss={dismissBackendGuide}
+      />
     </View>
   );
 }

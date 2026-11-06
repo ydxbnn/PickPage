@@ -2,7 +2,7 @@
   "expo": {
     "name": "PickPage",
     "slug": "pickpage-app",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.pickpage.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#2E6B5A",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -33,6 +33,9 @@
         "projectId": "5af05838-694a-465d-9890-72240aee091a"
       }
     },
-    "owner": "sjshvsv"
+    "owner": "sjshvsv",
+    "plugins": [
+      "./plugins/withCleartextTraffic"
+    ]
   }
 }
