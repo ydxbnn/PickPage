@@ -1,7 +1,6 @@
 format_version: '13'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: android
-
 workflows:
   primary:
     steps:
@@ -14,10 +13,7 @@ workflows:
         - content: |-
             #!/usr/bin/env bash
             set -ex
-            echo "安装 Node 依赖..."
             npm ci --no-audit --no-fund
-            
-            echo "生成安卓原生代码 (Expo Prebuild)..."
             npx expo prebuild --platform android --no-install
     - script:
         title: Build APK with Gradle
@@ -25,19 +21,15 @@ workflows:
         - content: |-
             #!/usr/bin/env bash
             set -ex
-            echo "设置 Gradle 内存..."
             export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
-            
-            echo "开始编译 Release APK..."
             cd android
             chmod +x gradlew
             ./gradlew assembleRelease --no-daemon --stacktrace
     - script:
-        title: Copy APK to Deploy Directory
+        title: Copy APK
         inputs:
         - content: |-
             #!/usr/bin/env bash
-            set -ex
             mkdir -p $BITRISE_DEPLOY_DIR
             cp android/app/build/outputs/apk/release/*.apk $BITRISE_DEPLOY_DIR/
     - deploy-to-bitrise-io@2: {}
