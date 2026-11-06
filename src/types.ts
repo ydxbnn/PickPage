@@ -1,3 +1,18 @@
+export type BackendStatus = 'SUCCESS' | 'EMPTY_BODY' | 'BLOCKED' | 'NETWORK_ERROR';
+
+export type RedIssue = {
+  status: BackendStatus;
+  reason: string;
+  httpCode: number;
+  retryCount: number;
+  retryable: boolean;
+  source: 'health' | 'fetch';
+  url?: string | null;
+  at: number;
+};
+
+export type UserMode = 'newbie' | 'veteran';
+
 export type Snapshot = {
   id: string;
   /** 用户复制时留下的原文 */

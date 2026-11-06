@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import type { Snapshot } from './types';
+import type { Snapshot, UserMode } from './types';
 
 const SNAPSHOTS_KEY = '@pickpage/snapshots/v1';
 const FLOATING_KEY = '@pickpage/floating_enabled/v1';
+const USER_MODE_KEY = '@pickpage/user_mode/v1';
 
 function isSnapshot(value: unknown): value is Snapshot {
   if (!value || typeof value !== 'object') return false;
@@ -57,6 +58,24 @@ export async function loadFloatingEnabled(): Promise<boolean> {
 export async function saveFloatingEnabled(enabled: boolean): Promise<void> {
   try {
     await AsyncStorage.setItem(FLOATING_KEY, enabled ? '1' : '0');
+  } catch {
+    // 忽略
+  }
+}
+
+
+export async function loadUserMode(): Promise<UserMode | null> {
+  try {
+    const value = await AsyncStorage.getItem(USER_MODE_KEY);
+    return value === 'newbie' || value === 'veteran' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveUserMode(mode: UserMode): Promise<void> {
+  try {
+    await AsyncStorage.setItem(USER_MODE_KEY, mode);
   } catch {
     // 忽略
   }

@@ -21,11 +21,15 @@ import {
   type AISettings,
 } from '../lib/ai';
 import type { Palette } from '../theme';
+import type { UserMode } from '../types';
 
 type Props = {
   visible: boolean;
   palette: Palette;
   initialSettings: AISettings;
+  userMode: UserMode | null;
+  onSelectMode: (mode: UserMode) => void;
+  onOpenFaq: () => void;
   onClose: () => void;
   onSaved: (settings: AISettings) => void;
 };
@@ -37,6 +41,9 @@ export default function SettingsModal({
   visible,
   palette,
   initialSettings,
+  userMode,
+  onSelectMode,
+  onOpenFaq,
   onClose,
   onSaved,
 }: Props) {
@@ -214,6 +221,69 @@ export default function SettingsModal({
             />
           </View>
 
+          <Text style={[styles.sectionLabel, { color: palette.textSecondary }]}>
+            使用模式（可随时切换）
+          </Text>
+          <View style={styles.modeRow}>
+            <Pressable
+              onPress={() => onSelectMode('newbie')}
+              style={({ pressed }) => [
+                styles.modeChip,
+                {
+                  backgroundColor:
+                    userMode === 'newbie' ? palette.accent : palette.surface,
+                  borderColor: userMode === 'newbie' ? palette.accent : palette.border,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.modeChipText,
+                  { color: userMode === 'newbie' ? '#FFFFFF' : palette.text },
+                ]}
+              >
+                新手
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onSelectMode('veteran')}
+              style={({ pressed }) => [
+                styles.modeChip,
+                {
+                  backgroundColor:
+                    userMode === 'veteran' ? palette.accent : palette.surface,
+                  borderColor: userMode === 'veteran' ? palette.accent : palette.border,
+                  opacity: pressed ? 0.75 : 1,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.modeChipText,
+                  { color: userMode === 'veteran' ? '#FFFFFF' : palette.text },
+                ]}
+              >
+                老手
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={onOpenFaq}
+              style={({ pressed }) => [
+                styles.faqEntry,
+                {
+                  backgroundColor: palette.surfaceMuted,
+                  borderColor: palette.border,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Text style={[styles.faqEntryText, { color: palette.accent }]}>
+                FAQ / 完整新手教程 →
+              </Text>
+            </Pressable>
+          </View>
+
           <View
             style={[
               styles.securityNote,
@@ -347,6 +417,38 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 7,
     marginBottom: 18,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  modeChip: {
+    minWidth: 64,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  modeChipText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  faqEntry: {
+    flex: 1,
+    minWidth: 150,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    alignItems: 'center',
+  },
+  faqEntryText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   securityNote: {
     borderRadius: 16,

@@ -8,6 +8,7 @@ import {
   PermissionsAndroid,
   Platform,
   Pressable,
+  Share,
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
@@ -16,8 +17,10 @@ import {
 } from 'react-native';
 
 import FloatingMemo from './modules/floating-memo';
-import BackendResidentGuideModal from './src/components/BackendResidentGuideModal';
+import FaqModal from './src/components/FaqModal';
 import NoticeBanner from './src/components/NoticeBanner';
+import OnboardingModeModal from './src/components/OnboardingModeModal';
+import RedLightModal from './src/components/RedLightModal';
 import SettingsModal from './src/components/SettingsModal';
 import SnapshotCard from './src/components/SnapshotCard';
 import {
@@ -27,19 +30,25 @@ import {
   summarizeWithAI,
   type AISettings,
 } from './src/lib/ai';
-import { fetchPageFromBackend } from './src/lib/backend';
+import {
+  checkBackendHealth as probeBackendHealth,
+  fetchBackendLogs,
+  fetchPageFromBackend,
+  issueFromBackendError,
+  restartBackend,
+} from './src/lib/backend';
 import { checkUrlAlive, createPendingSnapshot } from './src/lib/url';
 import {
   loadFloatingEnabled,
   loadSnapshots,
+  loadUserMode,
   saveFloatingEnabled,
   saveSnapshots,
+  saveUserMode,
 } from './src/storage';
 import { darkPalette, lightPalette } from './src/theme';
-import type { Notice, Snapshot } from './src/types';
+import type { Notice, RedIssue, Snapshot, UserMode } from './src/types';
 
-const BACKEND_HEALTH_URL = 'http://127.0.0.1:8080/health';
-const BACKEND_HEALTH_TIMEOUT_MS = 2500;
 const BACKEND_GUIDE_START_DELAY_MS = 1200;
 const BACKEND_HEALTH_POLL_MS = 60000;
 
@@ -61,17 +70,28 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [backendGuideVisible, setBackendGuideVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [aiSettings, setAISettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [redIssue, setRedIssue] = useState<RedIssue | null>(null);
+  const [redStreak, setRedStreak] = useState(0);
+  const [redModalVisible, setRedModalVisible] = useState(false);
+  const [restartingBackend, setRestartingBackend] = useState(false);
+  const [exportingLogs, setExportingLogs] = useState(false);
+  const [faqVisible, setFaqVisible] = useState(false);
+  const [faqTutorialOpen, setFaqTutorialOpen] = useState(false);
+  const [userMode, setUserMode] = useState<UserMode | null>(null);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
 
   const snapshotsRef = useRef<Snapshot[]>([]);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeIdRef = useRef(0);
   const pendingEnableRef = useRef(false);
-  const backendGuideSuppressedRef = useRef(false);
   const backendHealthCheckInFlightRef = useRef(false);
   const aiSettingsRef = useRef<AISettings>(DEFAULT_AI_SETTINGS);
+  const backendOnlineRef = useRef<boolean | null>(null);
+  const redIssueRef = useRef<RedIssue | null>(null);
+  const redStreakRef = useRef(0);
 
   const topInset = Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0;
 
@@ -138,30 +158,91 @@ export default function App() {
     aiSettingsRef.current = next;
   }, []);
 
-  const checkBackendHealth = useCallback(async () => {
-    if (Platform.OS !== 'android' || backendHealthCheckInFlightRef.current) return;
-    backendHealthCheckInFlightRef.current = true;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), BACKEND_HEALTH_TIMEOUT_MS);
-    try {
-      const response = await fetch(BACKEND_HEALTH_URL, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    loadUserMode()
+      .then((mode) => {
+        if (cancelled) return;
+        setUserMode(mode);
+        if (!mode) {
+          timer = setTimeout(() => setOnboardingVisible(true), 700);
+        }
+      })
+      .catch(() => {
+        // 读取失败时仍可使用老手模式
       });
-      if (!response.ok) throw new Error(`health ${response.status}`);
-      setBackendGuideVisible(false);
-    } catch {
-      if (!backendGuideSuppressedRef.current) {
-        setBackendGuideVisible(true);
-      }
-    } finally {
-      clearTimeout(timeoutId);
-      backendHealthCheckInFlightRef.current = false;
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  const handleSelectMode = useCallback(async (mode: UserMode) => {
+    setUserMode(mode);
+    await saveUserMode(mode);
+    setOnboardingVisible(false);
+    if (mode === 'newbie') {
+      setFaqTutorialOpen(true);
+      setFaqVisible(true);
     }
   }, []);
 
-  // 启动、回到前台与定时轮询本地 Python 服务；断线时给出一次非强制引导。
+  const openFaq = useCallback((tutorialOpen = false) => {
+    setFaqTutorialOpen(tutorialOpen);
+    setFaqVisible(true);
+  }, []);
+
+  const clearRedState = useCallback(() => {
+    redStreakRef.current = 0;
+    redIssueRef.current = null;
+    setRedStreak(0);
+    setRedIssue(null);
+    setRedModalVisible(false);
+  }, []);
+
+  const registerRedIssue = useCallback((issue: RedIssue) => {
+    redIssueRef.current = issue;
+    setRedIssue(issue);
+    redStreakRef.current += 1;
+    const count = redStreakRef.current;
+    setRedStreak(count);
+    if (count >= 3) setRedModalVisible(true);
+  }, []);
+
+  const checkBackendHealth = useCallback(async () => {
+    if (Platform.OS !== 'android' || backendHealthCheckInFlightRef.current) return;
+    backendHealthCheckInFlightRef.current = true;
+    try {
+      const wasOnline = backendOnlineRef.current;
+      const online = await probeBackendHealth();
+      backendOnlineRef.current = online;
+      setBackendOnline(online);
+
+      if (online) {
+        if (redIssueRef.current?.source === 'health') {
+          clearRedState();
+        }
+        return;
+      }
+
+      if (wasOnline !== false) {
+        registerRedIssue({
+          status: 'NETWORK_ERROR',
+          reason: '本地服务未连接。｜请先启动 8080 后端。',
+          httpCode: 0,
+          retryCount: 0,
+          retryable: true,
+          source: 'health',
+          at: Date.now(),
+        });
+      }
+    } finally {
+      backendHealthCheckInFlightRef.current = false;
+    }
+  }, [clearRedState, registerRedIssue]);
+
+  // 启动、回到前台与定时轮询本地 Python 服务。
   useEffect(() => {
     if (Platform.OS !== 'android' || !loaded) return;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -205,14 +286,8 @@ export default function App() {
     };
   }, [checkBackendHealth, loaded]);
 
-  const dismissBackendGuide = useCallback(() => {
-    backendGuideSuppressedRef.current = true;
-    setBackendGuideVisible(false);
-  }, []);
-
   const openBackendBatterySettings = useCallback(async () => {
-    backendGuideSuppressedRef.current = true;
-    setBackendGuideVisible(false);
+    setRedModalVisible(false);
 
     try {
       if (Platform.OS === 'android') {
@@ -234,6 +309,54 @@ export default function App() {
           '请手动前往系统设置 → 应用 → PickPage → 电池，选择“不限制”或“允许后台运行”。',
         );
       }
+    }
+  }, []);
+
+  const handleRestartBackend = useCallback(async () => {
+    if (!backendOnlineRef.current) return;
+    setRestartingBackend(true);
+    const ok = await restartBackend();
+    if (!ok) {
+      setRestartingBackend(false);
+      Alert.alert('重启失败', '本地后端没有响应，请先手动启动 mimi_server.py。');
+      return;
+    }
+    setRedModalVisible(false);
+    setTimeout(() => void checkBackendHealth(), 2500);
+    setTimeout(() => void checkBackendHealth(), 6000);
+    setRestartingBackend(false);
+  }, [checkBackendHealth]);
+
+  const showResidentHelp = useCallback(() => {
+    Alert.alert(
+      '后台常驻设置说明',
+      '1. 打开系统设置 → 应用 → PickPage → 电池。\n2. 选择“不限制”或允许后台运行。\n3. 部分品牌还需允许自启动、关闭省电优化。',
+    );
+  }, []);
+
+  const exportDiagnosticLogs = useCallback(async () => {
+    setExportingLogs(true);
+    try {
+      const logs = await fetchBackendLogs();
+      const issue = redIssueRef.current;
+      const diagnostics = [
+        '拾页排查日志',
+        `时间：${new Date().toISOString()}`,
+        `后端在线：${backendOnlineRef.current === null ? '未知' : backendOnlineRef.current ? '是' : '否'}`,
+        `连续红灯：${redStreakRef.current} 次`,
+        `状态：${issue?.status ?? '无'}`,
+        `HTTP：${issue?.httpCode ?? 0}`,
+        `重试：${issue?.retryCount ?? 0}`,
+        `原因：${issue?.reason ?? '无'}`,
+        `AI 已配置：${hasAIConfig(aiSettingsRef.current) ? '是' : '否'}`,
+        '--- 后端日志 ---',
+        logs,
+      ].join('\n');
+      await Share.share({ title: '拾页排查日志', message: diagnostics });
+    } catch {
+      Alert.alert('导出失败', '暂时无法打开系统分享面板。');
+    } finally {
+      setExportingLogs(false);
     }
   }, []);
 
@@ -267,15 +390,16 @@ export default function App() {
       const backend = await fetchPageFromBackend(pending.url);
       if (!snapshotsRef.current.some((item) => item.id === pending.id)) return;
 
-      const backendSummary = backend.summary?.trim() ?? '';
-      const backendOk =
-        backend.code >= 200 &&
-        backend.code < 300 &&
-        Boolean(backendSummary);
+      const backendBody = backend.body_text?.trim() ?? '';
+      if (backend.status !== 'SUCCESS' || !backendBody) {
+        const retryNote = backend.retryable ? '（建议重试）' : '（不建议重试）';
+        const emptyHint = '这个页面正文是动态加载的，暂时抓不到';
+        const message =
+          backend.status === 'EMPTY_BODY'
+            ? `${emptyHint}\n${backend.reason || ''}`
+            : `${backend.reason || '抓取没有完成。'}${retryNote}`;
+        const isNotFound = backend.http_code === 404 || backend.http_code === 410;
 
-      if (!backendOk) {
-        const message = backend.message || '【错误翻译】本地抓取没有完成。';
-        const isNotFound = backend.code === 404 || backend.code === 410;
         patchSnapshot(pending.id, {
           title: backend.title?.trim() || pending.title,
           fetchState: 'failed',
@@ -285,14 +409,7 @@ export default function App() {
           aiError: null,
           dead: isNotFound,
         });
-        showNotice(
-          {
-            kind: isNotFound ? 'dead' : 'info',
-            title: isNotFound ? '原网页已失效' : '本地抓取没有完成',
-            message,
-          },
-          7000,
-        );
+        registerRedIssue(issueFromBackendError(backend, pending.url));
         return;
       }
 
@@ -300,10 +417,14 @@ export default function App() {
       const settingsForRequest = aiSettingsRef.current;
       const aiReady = hasAIConfig(settingsForRequest);
 
+      backendOnlineRef.current = true;
+      setBackendOnline(true);
+      clearRedState();
+
       patchSnapshot(pending.id, {
         title: pageTitle,
-        pageSummary: backendSummary,
-        description: backendSummary,
+        pageSummary: backendBody,
+        description: backendBody,
         fetchState: 'ok',
         serviceMessage: null,
         dead: false,
@@ -315,7 +436,7 @@ export default function App() {
 
       const aiResult = await summarizeWithAI(settingsForRequest, {
         title: pageTitle,
-        summary: backendSummary,
+        summary: backendBody,
         url: pending.url,
       });
       if (!snapshotsRef.current.some((item) => item.id === pending.id)) return;
@@ -334,7 +455,7 @@ export default function App() {
         });
       }
     },
-    [commitSnapshots, patchSnapshot, showNotice],
+    [clearRedState, commitSnapshots, patchSnapshot, registerRedIssue],
   );
 
   // 首次加载：恢复本地列表与悬浮窗状态。
@@ -622,6 +743,33 @@ export default function App() {
               </Pressable>
             ) : null}
 
+            {redIssue ? (
+              <Pressable
+                onPress={() => setRedModalVisible(true)}
+                style={({ pressed }) => [
+                  styles.redBar,
+                  {
+                    backgroundColor: palette.dangerSurface,
+                    borderColor: palette.danger,
+                    opacity: pressed ? 0.78 : 1,
+                  },
+                ]}
+              >
+                <View style={[styles.redBarBadge, { backgroundColor: palette.danger }]}>
+                  <Text style={styles.redBarBadgeText}>!</Text>
+                </View>
+                <View style={styles.redBarTextWrap}>
+                  <Text style={[styles.redBarTitle, { color: palette.danger }]}>
+                    {redStreak >= 3 ? '深度排查模式' : '本地服务亮红灯'}
+                  </Text>
+                  <Text style={[styles.redBarDesc, { color: palette.textSecondary }]}>
+                    点此一键重启 / 电池白名单 / 常驻说明
+                  </Text>
+                </View>
+                <Text style={[styles.redBarAction, { color: palette.danger }]}>处理 →</Text>
+              </Pressable>
+            ) : null}
+
             <View style={styles.sectionRow}>
               <Text style={[styles.sectionTitle, { color: palette.text }]}>
                 快照{loaded ? ` · ${snapshots.length}` : ''}
@@ -674,17 +822,49 @@ export default function App() {
         />
       ) : null}
 
-      <BackendResidentGuideModal
-        visible={backendGuideVisible}
+      <RedLightModal
+        visible={redModalVisible}
         palette={palette}
-        onOpenSettings={() => void openBackendBatterySettings()}
-        onDismiss={dismissBackendGuide}
+        issue={redIssue}
+        backendOnline={backendOnline === true}
+        redStreak={redStreak}
+        restarting={restartingBackend}
+        exporting={exportingLogs}
+        canOpenBattery={Platform.OS === 'android'}
+        onClose={() => setRedModalVisible(false)}
+        onRestart={() => void handleRestartBackend()}
+        onOpenBattery={() => void openBackendBatterySettings()}
+        onShowResidentHelp={showResidentHelp}
+        onExportLogs={() => void exportDiagnosticLogs()}
+      />
+
+      <OnboardingModeModal
+        visible={onboardingVisible}
+        palette={palette}
+        onSelect={(mode) => void handleSelectMode(mode)}
+      />
+
+      <FaqModal
+        visible={faqVisible}
+        palette={palette}
+        initialTutorialOpen={faqTutorialOpen}
+        onClose={() => setFaqVisible(false)}
+        onOpenRedLight={() => {
+          setFaqVisible(false);
+          setTimeout(() => setRedModalVisible(true), 200);
+        }}
       />
 
       <SettingsModal
         visible={settingsVisible}
         palette={palette}
         initialSettings={aiSettings}
+        userMode={userMode}
+        onSelectMode={(mode) => void handleSelectMode(mode)}
+        onOpenFaq={() => {
+          setSettingsVisible(false);
+          openFaq(true);
+        }}
         onClose={() => setSettingsVisible(false)}
         onSaved={handleAISettingsSaved}
       />
@@ -784,6 +964,45 @@ const styles = StyleSheet.create({
   enableAction: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  redBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    marginBottom: 16,
+  },
+  redBarBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  redBarBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  redBarTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  redBarTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  redBarDesc: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  redBarAction: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   sectionRow: {
     flexDirection: 'row',
