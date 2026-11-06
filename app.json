@@ -27,6 +27,12 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "jsEngine": "hermes"
+    "jsEngine": "hermes",
+    "extra": {
+      "eas": {
+        "projectId": "5af05838-694a-465d-9890-72240aee091a"
+      }
+    },
+    "owner": "sjshvsv"
   }
 }
