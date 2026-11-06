@@ -44,8 +44,8 @@ jobs:
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "platform-tools" "build-tools;34.0.0" "build-tools;36.0.0" "ndk;25.1.8937393" "cmake;3.22.1"
-          sdkmanager "platforms;android-36"
+          sdkmanager "platform-tools" "build-tools;34.0.0" "build-tools;36.0.0" "ndk;27.1.12297006" "cmake;3.22.1"
+          sdkmanager "platforms;android-37.0" || sdkmanager "platforms;android-37"
 
       - name: Install npm dependencies
         run: npm ci --no-audit --no-fund
@@ -60,7 +60,7 @@ jobs:
           else
             printf '\norg.gradle.jvmargs=-Xmx2048m\n' >> android/gradle.properties
           fi
-          printf '\nandroid.compileSdkVersion=36\nandroid.buildToolsVersion=36.0.0\n' >> android/gradle.properties
+          printf '\nandroid.compileSdkVersion=37\nandroid.buildToolsVersion=36.0.0\n' >> android/gradle.properties
           grep -E '^android\.(compileSdkVersion|buildToolsVersion)=' android/gradle.properties
           if grep -q '^expo.inlineModules.watchedDirectories=.*android\.compileSdkVersion' android/gradle.properties; then
             echo 'gradle.properties corruption detected'
