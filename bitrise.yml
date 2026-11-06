@@ -4,8 +4,6 @@ project_type: android
 workflows:
   primary:
     steps:
-    - activate-ssh-key@4:
-        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
     - git-clone: {}
     - script:
         title: Install dependencies and Prebuild Expo
