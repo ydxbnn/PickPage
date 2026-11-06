@@ -55,6 +55,11 @@ jobs:
 
       - name: Pin Android compile SDK
         run: |
+          if grep -q '^org.gradle.jvmargs=' android/gradle.properties; then
+            sed -i 's#^org.gradle.jvmargs=.*#org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m#' android/gradle.properties
+          else
+            printf '\norg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m\n' >> android/gradle.properties
+          fi
           printf '\nandroid.compileSdkVersion=36\nandroid.buildToolsVersion=36.0.0\n' >> android/gradle.properties
           grep -E '^android\.(compileSdkVersion|buildToolsVersion)=' android/gradle.properties
           if grep -q '^expo.inlineModules.watchedDirectories=.*android\.compileSdkVersion' android/gradle.properties; then
