@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "PickPage",
+    "slug": "pickpage",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.pickpage.app"
+    },
+    "android": {
+      "package": "com.pickpage.app",
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "backgroundColor": "#2E6B5A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "jsEngine": "hermes"
+  }
+}

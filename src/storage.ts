@@ -1,0 +1,58 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import type { Snapshot } from './types';
+
+const SNAPSHOTS_KEY = '@pickpage/snapshots/v1';
+const FLOATING_KEY = '@pickpage/floating_enabled/v1';
+
+function isSnapshot(value: unknown): value is Snapshot {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<Snapshot>;
+  return (
+    typeof item.id === 'string' &&
+    typeof item.text === 'string' &&
+    typeof item.title === 'string' &&
+    typeof item.createdAt === 'number'
+  );
+}
+
+export async function loadSnapshots(): Promise<Snapshot[]> {
+  try {
+    const raw = await AsyncStorage.getItem(SNAPSHOTS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isSnapshot).map((item) => ({
+      ...item,
+      description: item.description ?? null,
+      url: item.url ?? null,
+      fetchState: item.fetchState ?? (item.url ? 'failed' : 'none'),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveSnapshots(snapshots: Snapshot[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(snapshots));
+  } catch {
+    // 写入失败时保留内存中的列表，下一次操作会再次尝试。
+  }
+}
+
+export async function loadFloatingEnabled(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(FLOATING_KEY)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function saveFloatingEnabled(enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(FLOATING_KEY, enabled ? '1' : '0');
+  } catch {
+    // 忽略
+  }
+}

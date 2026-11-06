@@ -1,0 +1,15 @@
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+/android/
+/ios/
+*.tsbuildinfo
+.DS_Store
+npm-debug.*
+
+# local native build artifacts
+modules/*/android/build/
+modules/*/android/.gradle/
+modules/*/android/.cxx/
