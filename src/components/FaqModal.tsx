@@ -17,7 +17,6 @@ type Props = {
   palette: Palette;
   initialTutorialOpen?: boolean;
   onClose: () => void;
-  onOpenRedLight: () => void;
 };
 
 type FaqItem = {
@@ -43,7 +42,6 @@ export default function FaqModal({
   palette,
   initialTutorialOpen = false,
   onClose,
-  onOpenRedLight,
 }: Props) {
   const [tutorialOpen, setTutorialOpen] = useState(initialTutorialOpen);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
@@ -106,13 +104,6 @@ export default function FaqModal({
         answer: '设置 → API Key 粘贴 Key；Base URL 与模型必须匹配。401 多为 Key 错，404 多为地址错。',
       },
       {
-        id: 'help-red',
-        title: '红灯一直亮怎么办？',
-        answer: '点首页红灯打开处理弹框，先用「一键重启后端」，不行再点「跳转电池优化白名单」。',
-        actionLabel: '打开红灯处理',
-        onAction: onOpenRedLight,
-      },
-      {
         id: 'help-fetch',
         title: '抓取失败 / 正文为空？',
         answer: '404/403/429/5xx 看 reason 提示；EMPTY_BODY 是动态加载页面，静态抓取抓不到正文，不会调用 AI。',
@@ -137,7 +128,7 @@ export default function FaqModal({
       { key: 'trouble' as const, title: '常见问题排查', items: trouble },
       { key: 'privacy' as const, title: '隐私说明', items: privacy },
     ];
-  }, [onOpenRedLight]);
+  }, []);
 
   return (
     <Modal
@@ -180,7 +171,7 @@ export default function FaqModal({
                 完整新手教程
               </Text>
               <Text style={[styles.tutorialEntrySub, { color: palette.textSecondary }]}>
-                从启动后端到 AI 总结，一步步走完
+                从抓取网页到 AI 总结，一步步走完
               </Text>
             </View>
             <Text style={[styles.tutorialChevron, { color: palette.accent }]}>
@@ -196,7 +187,7 @@ export default function FaqModal({
               ]}
             >
               <Text style={[styles.tutorialStep, { color: palette.text }]}>
-                1. 启动本地 mimi_server.py，确认 /health 返回 200。
+                1. 复制网页内容，抓取和正文降噪都在 App 内完成，无需 Python/Termux。
               </Text>
               <Text style={[styles.tutorialStep, { color: palette.text }]}>
                 2. 设置里填 API Key、Base URL、模型；官方与第三方入口见下方。
@@ -205,7 +196,7 @@ export default function FaqModal({
                 3. 复制网页内容，点悬浮气泡「保存快照」；SUCCESS 才会生成 AI 总结。
               </Text>
               <Text style={[styles.tutorialStep, { color: palette.text }]}>
-                4. 亮红灯时用一键重启或电池白名单；3 次红灯进入深度排查。
+                4. 抓取失败时先检查网址和网络；正文为空说明页面可能动态加载。
               </Text>
             </View>
           ) : null}
