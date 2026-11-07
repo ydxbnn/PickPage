@@ -215,19 +215,40 @@ export default function App() {
     }
   }, []);
 
-  /** 保存剪贴板内容，并在后台补齐网页 title / meta description。 */
-  const saveSnapshotFromText = useCallback(
-    async (rawText: string) => {
-      const text = rawText.trim();
-      if (!text) return;
+  const fetchSnapshotContent = useCallback(
+    async (snapshotId: string, url: string, fallbackTitle: string) => {
+      patchSnapshot(snapshotId, {
+        fetchState: 'pending',
+        serviceMessage: null,
+        dead: false,
+        aiState: 'skipped',
+        aiSummary: null,
+        aiError: null,
+      });
 
-      const pending = createPendingSnapshot(text);
-      commitSnapshots([pending, ...snapshotsRef.current]);
+      let backend: Awaited<ReturnType<typeof fetchPageFromBackend>>;
+      try {
+        backend = await fetchPageFromBackend(url);
+      } catch {
+        if (!snapshotsRef.current.some((item) => item.id === snapshotId)) return;
+        const message = '抓取请求异常，请重试或稍后再试。';
+        patchSnapshot(snapshotId, {
+          fetchState: 'failed',
+          serviceMessage: message,
+          aiState: 'skipped',
+          aiError: null,
+        });
+        Alert.alert('抓取失败', message, [
+          {
+            text: '重试',
+            onPress: () => void fetchSnapshotContent(snapshotId, url, fallbackTitle),
+          },
+          { text: '取消', style: 'cancel' },
+        ]);
+        return;
+      }
 
-      if (!pending.url) return;
-
-      const backend = await fetchPageFromBackend(pending.url);
-      if (!snapshotsRef.current.some((item) => item.id === pending.id)) return;
+      if (!snapshotsRef.current.some((item) => item.id === snapshotId)) return;
 
       const backendBody = backend.body_text?.trim() ?? '';
       if (backend.status !== 'SUCCESS' || !backendBody) {
@@ -237,12 +258,13 @@ export default function App() {
           backend.status === 'EMPTY_BODY'
             ? `${emptyHint}\n${backend.reason || ''}`
             : backend.status === 'BLOCKED'
-              ? backend.reason || '对方开了防爬，请用浏览器打开原网页。'
+              ? backend.reason || '对方开了防爬，可以重试或用浏览器打开原网页。'
               : `${backend.reason || '抓取没有完成。'}${retryNote}`;
         const isNotFound = backend.http_code === 404 || backend.http_code === 410;
+        const isBlocked = backend.status === 'BLOCKED';
 
-        patchSnapshot(pending.id, {
-          title: backend.title?.trim() || pending.title,
+        patchSnapshot(snapshotId, {
+          title: backend.title?.trim() || fallbackTitle,
           fetchState: 'failed',
           serviceMessage: message,
           aiState: 'skipped',
@@ -250,21 +272,38 @@ export default function App() {
           aiError: null,
           dead: isNotFound,
         });
-        Alert.alert('抓取失败', message, [
-          { text: '稍后', style: 'cancel' },
-          {
-            text: '去浏览器打开',
-            onPress: () => void handleOpenOriginal(pending.url),
-          },
-        ]);
+
+        Alert.alert(
+          '抓取失败',
+          message,
+          isBlocked
+            ? [
+                {
+                  text: '重试',
+                  onPress: () => void fetchSnapshotContent(snapshotId, url, fallbackTitle),
+                },
+                {
+                  text: '去浏览器打开',
+                  onPress: () => void handleOpenOriginal(url),
+                },
+                { text: '取消', style: 'cancel' },
+              ]
+            : [
+                {
+                  text: '重试',
+                  onPress: () => void fetchSnapshotContent(snapshotId, url, fallbackTitle),
+                },
+                { text: '取消', style: 'cancel' },
+              ],
+        );
         return;
       }
 
-      const pageTitle = backend.title?.trim() || pending.title;
+      const pageTitle = backend.title?.trim() || fallbackTitle;
       const settingsForRequest = aiSettingsRef.current;
       const aiReady = hasAIConfig(settingsForRequest);
 
-      patchSnapshot(pending.id, {
+      patchSnapshot(snapshotId, {
         title: pageTitle,
         pageSummary: backendBody,
         description: backendBody,
@@ -280,25 +319,40 @@ export default function App() {
       const aiResult = await summarizeWithAI(settingsForRequest, {
         title: pageTitle,
         summary: backendBody,
-        url: pending.url,
+        url,
       });
-      if (!snapshotsRef.current.some((item) => item.id === pending.id)) return;
+      if (!snapshotsRef.current.some((item) => item.id === snapshotId)) return;
 
       if (aiResult.ok) {
-        patchSnapshot(pending.id, {
+        patchSnapshot(snapshotId, {
           aiState: 'done',
           aiSummary: aiResult.text,
           aiError: null,
         });
       } else {
-        patchSnapshot(pending.id, {
+        patchSnapshot(snapshotId, {
           aiState: 'error',
           aiSummary: null,
           aiError: aiResult.message,
         });
       }
     },
-    [commitSnapshots, handleOpenOriginal, patchSnapshot],
+    [handleOpenOriginal, patchSnapshot],
+  );
+
+  /** 保存剪贴板内容，并在后台补齐网页 title / meta description。 */
+  const saveSnapshotFromText = useCallback(
+    async (rawText: string) => {
+      const text = rawText.trim();
+      if (!text) return;
+
+      const pending = createPendingSnapshot(text);
+      commitSnapshots([pending, ...snapshotsRef.current]);
+
+      if (!pending.url) return;
+      await fetchSnapshotContent(pending.id, pending.url, pending.title);
+    },
+    [commitSnapshots, fetchSnapshotContent],
   );
 
   const handleClipboardFetch = useCallback(async () => {

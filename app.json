@@ -2,7 +2,7 @@
   "expo": {
     "name": "PickPage",
     "slug": "pickpage-app",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.pickpage.app",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#2E6B5A",
         "foregroundImage": "./assets/android-icon-foreground.png",
