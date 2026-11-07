@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -58,6 +59,7 @@ export default function App() {
   const [floatingEnabled, setFloatingEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [manualFetching, setManualFetching] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [aiSettings, setAISettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
@@ -221,6 +223,7 @@ export default function App() {
           aiError: null,
           dead: isNotFound,
         });
+        Alert.alert('抓取失败', message);
         return;
       }
 
@@ -265,6 +268,27 @@ export default function App() {
     [commitSnapshots, patchSnapshot],
   );
 
+  const handleClipboardFetch = useCallback(async () => {
+    if (manualFetching) return;
+    setManualFetching(true);
+    try {
+      const text = (await Clipboard.getStringAsync()).trim();
+      if (!text) {
+        showNotice({
+          kind: 'info',
+          title: '剪贴板是空的',
+          message: '先复制一段网页链接或文字，再回来点「从剪贴板抓取」。',
+        });
+        return;
+      }
+      await saveSnapshotFromText(text);
+    } catch {
+      Alert.alert('读取剪贴板失败', '请确认 App 在前台，并允许读取剪贴板后重试。');
+    } finally {
+      setManualFetching(false);
+    }
+  }, [manualFetching, saveSnapshotFromText, showNotice]);
+
   // 首次加载：恢复本地列表与悬浮窗状态。
   useEffect(() => {
     let cancelled = false;
@@ -300,7 +324,9 @@ export default function App() {
   // 原生悬浮面板点了「保存快照」。
   useEffect(() => {
     const sub = FloatingMemo.addListener('onSnapshot', (event) => {
-      void saveSnapshotFromText(event.text);
+      void saveSnapshotFromText(event.text).catch(() => {
+        Alert.alert('快照保存失败', '抓取过程中出现异常，请重试。');
+      });
     });
     return () => sub.remove();
   }, [saveSnapshotFromText]);
@@ -550,6 +576,32 @@ export default function App() {
               </Pressable>
             ) : null}
 
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="从剪贴板抓取"
+              disabled={manualFetching}
+              onPress={() => void handleClipboardFetch()}
+              style={({ pressed }) => [
+                styles.manualCard,
+                {
+                  backgroundColor: palette.accent,
+                  opacity: manualFetching ? 0.6 : pressed ? 0.82 : 1,
+                },
+              ]}
+            >
+              <View style={styles.manualTextWrap}>
+                <Text style={styles.manualTitle}>
+                  {manualFetching ? '正在抓取…' : '从剪贴板抓取'}
+                </Text>
+                <Text style={styles.manualDesc}>
+                  复制网页链接后回到这里，点一下直接抓取
+                </Text>
+              </View>
+              <Text style={styles.manualAction}>
+                {manualFetching ? '请稍候' : '抓取 →'}
+              </Text>
+            </Pressable>
+
             <View style={styles.sectionRow}>
               <Text style={[styles.sectionTitle, { color: palette.text }]}>
                 快照{loaded ? ` · ${snapshots.length}` : ''}
@@ -724,6 +776,35 @@ const styles = StyleSheet.create({
   enableAction: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  manualCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 14,
+    marginBottom: 10,
+  },
+  manualTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  manualTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  manualDesc: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  manualAction: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
   sectionRow: {
     flexDirection: 'row',

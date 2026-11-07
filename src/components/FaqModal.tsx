@@ -193,7 +193,7 @@ export default function FaqModal({
                 2. 设置里填 API Key、Base URL、模型；官方与第三方入口见下方。
               </Text>
               <Text style={[styles.tutorialStep, { color: palette.text }]}>
-                3. 复制网页内容，点悬浮气泡「保存快照」；SUCCESS 才会生成 AI 总结。
+                3. 复制网页内容，点主界面「从剪贴板抓取」或悬浮气泡保存；成功后生成 AI 总结。
               </Text>
               <Text style={[styles.tutorialStep, { color: palette.text }]}>
                 4. 抓取失败时先检查网址和网络；正文为空说明页面可能动态加载。
