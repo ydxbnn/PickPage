@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build-android:
-    name: Build debug APK
+    name: Build release APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -109,7 +109,7 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Build debug APK
+      - name: Build release APK
         working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -119,17 +119,17 @@ jobs:
           chmod +x gradlew
           # Keep Gradle within GitHub runner memory limits
           export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2g"
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Find APK
         run: |
-          find android/app/build/outputs/apk/debug -name '*.apk' -type f -print
-          test -n "$(find android/app/build/outputs/apk/debug -name '*.apk' -type f -print -quit)"
+          find android/app/build/outputs/apk/release -name '*.apk' -type f -print
+          test -n "$(find android/app/build/outputs/apk/release -name '*.apk' -type f -print -quit)"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pickpage-debug-${{ github.run_number }}
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: pickpage-release-${{ github.run_number }}
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
