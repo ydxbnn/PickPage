@@ -105,8 +105,8 @@ export default function FaqModal({
       },
       {
         id: 'help-fetch',
-        title: '抓取失败 / 正文为空？',
-        answer: '404/403/429/5xx 看 reason 提示；EMPTY_BODY 是动态加载页面，静态抓取抓不到正文，不会调用 AI。',
+        title: '抓取被拦截 / 正文为空？',
+        answer: '403/429 会自动打开系统浏览器，复制正文后回来保存；EMPTY_BODY 是动态加载页面，不会调用 AI。',
       },
     ];
 

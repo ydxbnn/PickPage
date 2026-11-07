@@ -227,7 +227,9 @@ export default function App() {
         const message =
           backend.status === 'EMPTY_BODY'
             ? `${emptyHint}\n${backend.reason || ''}`
-            : `${backend.reason || '抓取没有完成。'}${retryNote}`;
+            : backend.status === 'BLOCKED'
+              ? backend.reason || '对方开了防爬，请用浏览器打开原网页。'
+              : `${backend.reason || '抓取没有完成。'}${retryNote}`;
         const isNotFound = backend.http_code === 404 || backend.http_code === 410;
 
         patchSnapshot(pending.id, {

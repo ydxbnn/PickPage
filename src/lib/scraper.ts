@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { load } from 'cheerio/slim';
+import { Linking } from 'react-native';
 
 import type { BackendStatus } from '../types';
 
@@ -11,6 +12,7 @@ export type ScrapeResult = {
   retry_count: number;
   title?: string;
   retryable?: boolean;
+  browser_opened?: boolean;
 };
 
 const REQUEST_TIMEOUT_MS = 25000;
@@ -37,10 +39,26 @@ const COPY = {
   timeout: '连接超时，网络可能不稳定。｜网络开小差，喝口水再试。',
   network: '连接失败，可能网址有误或断网。｜网线打结了，检查一下再试。',
   parse: '页面解析失败，可能格式不兼容。｜这页太绕，先换一篇试试。',
+  browserOpened: '对方开了防爬，已为你用浏览器打开原网页，你可以手动复制正文后使用。',
+  browserManual: '对方开了防爬，请手动用浏览器打开原网页，复制正文后使用。',
 };
 
 function randomUserAgent(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function refererFor(url: URL): string | undefined {
+  const host = url.hostname.toLowerCase();
+  return host === 'zhihu.com' || host.endsWith('.zhihu.com') ? 'https://www.zhihu.com/' : undefined;
+}
+
+async function openInBrowser(url: string): Promise<boolean> {
+  try {
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function result(
@@ -181,9 +199,13 @@ export async function extractPureText(url: string): Promise<ScrapeResult> {
       transformResponse: [(data) => data],
       headers: {
         'User-Agent': randomUserAgent(),
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
         'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+        'Upgrade-Insecure-Requests': '1',
+        ...(refererFor(normalizedUrl) ? { Referer: refererFor(normalizedUrl) } : {}),
       },
     });
 
@@ -203,7 +225,18 @@ export async function extractPureText(url: string): Promise<ScrapeResult> {
     return result('SUCCESS', COPY.success, response.status, body, false, parsed.title);
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      if (error.response?.status) return statusResult(error.response.status);
+      if (error.response?.status) {
+        const failure = statusResult(error.response.status);
+        if (failure.status === 'BLOCKED') {
+          const opened = await openInBrowser(normalizedUrl.toString());
+          return {
+            ...failure,
+            reason: opened ? COPY.browserOpened : COPY.browserManual,
+            browser_opened: opened,
+          };
+        }
+        return failure;
+      }
       if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
         return result('NETWORK_ERROR', COPY.timeout, 0, '', true);
       }
