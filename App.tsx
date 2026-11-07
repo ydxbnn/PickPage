@@ -206,6 +206,15 @@ export default function App() {
     }
   }, []);
 
+  const handleOpenOriginal = useCallback(async (url: string | null) => {
+    if (!url) return;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('无法打开浏览器', '请复制链接后手动在浏览器打开。');
+    }
+  }, []);
+
   /** 保存剪贴板内容，并在后台补齐网页 title / meta description。 */
   const saveSnapshotFromText = useCallback(
     async (rawText: string) => {
@@ -241,7 +250,13 @@ export default function App() {
           aiError: null,
           dead: isNotFound,
         });
-        Alert.alert('抓取失败', message);
+        Alert.alert('抓取失败', message, [
+          { text: '稍后', style: 'cancel' },
+          {
+            text: '去浏览器打开',
+            onPress: () => void handleOpenOriginal(pending.url),
+          },
+        ]);
         return;
       }
 
@@ -283,7 +298,7 @@ export default function App() {
         });
       }
     },
-    [commitSnapshots, patchSnapshot],
+    [commitSnapshots, handleOpenOriginal, patchSnapshot],
   );
 
   const handleClipboardFetch = useCallback(async () => {
@@ -818,6 +833,7 @@ export default function App() {
             palette={palette}
             checking={checkingId === item.id}
             onOpen={() => void handleOpenSnapshot(item)}
+            onOpenOriginal={() => void handleOpenOriginal(item.url)}
             onLongPress={() => handleManageSnapshot(item)}
           />
         )}

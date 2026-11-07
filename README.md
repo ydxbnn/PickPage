@@ -1,49 +1,90 @@
-# PickPage
+# PickPage（拾页）
 
 复制过的东西，不该随着原网页一起消失。
 
-PickPage 是一个只有「悬浮窗 + 列表」的本地网页快照 App：复制一段文字或链接，点悬浮气泡上的「保存快照」，它会在后台抓取来源网页的标题和 meta description，并连同原文一起存在手机本地。
+PickPage 是一个纯本地网页快照 App。它直接在手机端抓取网页正文、降噪并生成摘要，不再依赖 Python、Termux 或本地 8080 后端。
 
 ## 功能
 
-- **复制即提醒**：开启悬浮窗后，复制文字或链接，气泡会连续闪几下，并出现一个橙色提醒点。
-- **保存网页快照**：点气泡，在弹出的面板里点「保存快照」。App 会请求来源网页，抓取 `<title>` 和 meta description 后写入本地。
-- **本地列表**：每条快照展示网页标题、复制的原文、来源链接。
-- **404 防失联**：点卡片访问原网页前会先检查链接。请求失败时弹出红色提示「原网页已失效，正在为你展示本地快照」，卡片会保留原网址，并标记为「已失效」。
-- **纯本地存储**：快照使用 AsyncStorage 存在本机；没有账号、没有云同步。保存时只向来源网址请求网页标题与摘要。
+- **设备端抓取**：`axios + cheerio` 直接请求网页，随机 User-Agent，清理 `script/style/nav/footer` 等噪音，提取 `<p>` 正文并截取 300～500 字。
+- **一键剪贴板总结**：复制链接后回到 App，点「从剪贴板抓取」或「一键读取剪贴板并总结」，自动抓取并调用 AI。
+- **查看原文**：每条历史快照底部都有「查看原文 ↗」，直接调用系统浏览器打开来源链接。
+- **反爬兜底**：知乎请求自动附加 `Referer: https://www.zhihu.com/`；遇到 403/429 等拦截时自动打开系统浏览器，并在弹窗提供「去浏览器打开」按钮。
+- **防后台被杀**：`AppState` 回到前台时检测剪贴板新链接；URL 草稿、快照列表、AI 配置会自动恢复。
+- **极简模式**：设置里可切换，只保留巨大的「一键读取剪贴板并总结」按钮和最近一次总结。
+- **AI 总结**：默认 DeepSeek：
+  - Base URL：`https://api.deepseek.com/v1`
+  - 模型：`deepseek-chat`
+  - 极简模式不显示思考深度或模型选择参数，只需要填一次 API Key。
+- **本地优先**：快照存在 AsyncStorage；API Key 存在 SecureStore（Android Keystore），不写入明文存储。
 
 ## 使用
 
 1. 安装 APK，打开 PickPage。
-2. 点右上角「悬浮窗 关」→ 授予「显示在其他应用上层」权限。
-3. 在任意 App 复制一段文字或链接。
-4. 点屏幕边缘的绿色气泡 → 点「保存快照」。
-5. 回到 PickPage 查看列表；点卡片可以检查并打开原网页。
+2. 在设置中填入一次 API Key；Base URL 和模型默认已填好。
+3. 复制网页链接。
+4. 回到 App：
+   - 极客模式：点「从剪贴板抓取」，或粘贴到 URL 输入框后点「抓取」。
+   - 极简模式：点「一键读取剪贴板并总结」。
+5. 查看最近总结或历史快照；点「查看原文」回到原网页。
 
-长按气泡可关闭悬浮窗；长按列表卡片可删除该条快照。
+开启悬浮窗后，也可以复制内容并从悬浮气泡的「保存快照」进入。
 
-## 技术结构
+## 抓取状态
 
-- `App.tsx`：列表、悬浮窗开关、404 检查、红色提示。
-- `src/lib/url.ts`：链接提取、网页标题 / meta description 抓取、链接存活检查。
-- `src/storage.ts`：本地快照读写。
-- `modules/floating-memo/`：Android 悬浮气泡、剪贴板监听、保存面板与前台服务。
+- `SUCCESS`：正文抓取成功，才会调用 AI。
+- `EMPTY_BODY`：正文为空，通常是动态加载页面。
+- `BLOCKED`：401/403/407/429/451 等反爬拦截，自动打开系统浏览器。
+- `NETWORK_ERROR`：404/5xx/超时/断网等网络错误。
 
-## 开发 / 打包
+## 目录
+
+- `App.tsx`：主界面、极简/极客模式、剪贴板恢复、快照列表。
+- `src/lib/scraper.ts`：纯 TypeScript 网页抓取、降噪和状态分类。
+- `src/lib/backend.ts`：抓取器适配层。
+- `src/lib/ai.ts`：AI 配置与 Chat Completions 调用。
+- `src/lib/url.ts`：链接提取与网页元数据。
+- `src/storage.ts`：快照、URL 草稿、极简模式和用户模式持久化。
+- `src/components/SnapshotCard.tsx`：快照卡片和「查看原文」。
+- `src/components/SettingsModal.tsx`：API Key 与极简模式设置。
+- `src/components/FaqModal.tsx`：FAQ 与新手教程。
+- `modules/floating-memo/`：Android 悬浮气泡与剪贴板监听。
+
+## 开发
 
 ```bash
-npm install
-npx expo prebuild --platform android
+npm ci
 npx tsc --noEmit
-cd android
-./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a
+npx expo export --platform android --no-bytecode
 ```
 
-APK 输出：`android/app/build/outputs/apk/release/app-release.apk`
+## 打包
+
+推荐使用 GitHub Actions：
+
+```text
+.github/workflows/build-android.yml
+```
+
+云端执行 `expo prebuild` 和 `./gradlew assembleRelease`，APK 从 Actions 页面的 Artifacts 下载。
+
+本地需要 Android SDK、JDK 17 和足够内存：
+
+```bash
+npx expo prebuild --platform android
+cd android
+./gradlew assembleRelease
+```
+
+产物：
+
+```text
+android/app/build/outputs/apk/release/app-release.apk
+```
 
 ## 已知限制
 
-- 安卓 10+ 对后台读取剪贴板有限制。部分系统上，只有 App 在前台时监听才稳定；这是系统行为，不是 App 能绕过的。
-- 某些网站会拦截 App 发出的请求，或需要登录 / JavaScript 才能渲染。此时快照仍会保存，只是标题会使用本地原文兜底。
-- 网页返回 200 但内容实际是「404 页面」的情况，无法仅通过 HTTP 状态码识别。
-- 将 App 从后台强制划掉后，悬浮窗和监听会停止；重新打开 App 即可恢复。
+- Android 10+ 限制后台读取剪贴板，因此主界面提供前台「一键抓取」作为兜底。
+- 动态渲染页面可能返回 `EMPTY_BODY`，App 不会对空正文调用 AI。
+- 部分站点即使伪造请求头仍会拦截；此时会自动打开浏览器，由用户手动复制正文。
+- 未配置 GitHub Secrets 时，Release APK 使用 debug keystore 签名，不能覆盖 EAS 正式签名包，需要先卸载旧版。

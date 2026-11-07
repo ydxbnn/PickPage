@@ -9,6 +9,7 @@ type Props = {
   palette: Palette;
   checking: boolean;
   onOpen: () => void;
+  onOpenOriginal: () => void;
   onLongPress: () => void;
 };
 
@@ -17,6 +18,7 @@ export default function SnapshotCard({
   palette,
   checking,
   onOpen,
+  onOpenOriginal,
   onLongPress,
 }: Props) {
   const hasUrl = !!snapshot.url;
@@ -137,9 +139,30 @@ export default function SnapshotCard({
             {snapshot.url ?? '纯文字快照 · 无来源链接'}
           </Text>
         </View>
-        <Text style={[styles.time, { color: palette.textSecondary }]}>
-          {formatRelativeTime(snapshot.createdAt)}
-        </Text>
+        <View style={styles.footerActions}>
+          {hasUrl ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="查看原文"
+              hitSlop={8}
+              onPress={(event) => {
+                event.stopPropagation();
+                onOpenOriginal();
+              }}
+              style={({ pressed }) => [
+                styles.originalButton,
+                { backgroundColor: palette.surfaceMuted, opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={[styles.originalText, { color: palette.accent }]}>
+                查看原文 ↗
+              </Text>
+            </Pressable>
+          ) : null}
+          <Text style={[styles.time, { color: palette.textSecondary }]}>
+            {formatRelativeTime(snapshot.createdAt)}
+          </Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -250,6 +273,20 @@ const styles = StyleSheet.create({
   source: {
     flexShrink: 1,
     fontSize: 12,
+  },
+  footerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  originalButton: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  originalText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   time: {
     fontSize: 11,
