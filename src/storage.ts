@@ -5,6 +5,7 @@ import type { Snapshot, UserMode } from './types';
 const SNAPSHOTS_KEY = '@pickpage/snapshots/v1';
 const FLOATING_KEY = '@pickpage/floating_enabled/v1';
 const USER_MODE_KEY = '@pickpage/user_mode/v1';
+const DRAFT_URL_KEY = '@pickpage/draft_url/v1';
 
 function isSnapshot(value: unknown): value is Snapshot {
   if (!value || typeof value !== 'object') return false;
@@ -78,5 +79,23 @@ export async function saveUserMode(mode: UserMode): Promise<void> {
     await AsyncStorage.setItem(USER_MODE_KEY, mode);
   } catch {
     // 忽略
+  }
+}
+
+
+export async function loadDraftUrl(): Promise<string> {
+  try {
+    return (await AsyncStorage.getItem(DRAFT_URL_KEY)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export async function saveDraftUrl(value: string): Promise<void> {
+  try {
+    if (value) await AsyncStorage.setItem(DRAFT_URL_KEY, value);
+    else await AsyncStorage.removeItem(DRAFT_URL_KEY);
+  } catch {
+    // 草稿写入失败不影响主流程
   }
 }

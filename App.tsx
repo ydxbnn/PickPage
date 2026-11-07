@@ -12,6 +12,7 @@ import {
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
+  TextInput,
   useColorScheme,
   View,
 } from 'react-native';
@@ -30,11 +31,13 @@ import {
   type AISettings,
 } from './src/lib/ai';
 import { fetchPageFromBackend } from './src/lib/backend';
-import { checkUrlAlive, createPendingSnapshot } from './src/lib/url';
+import { checkUrlAlive, createPendingSnapshot, extractSourceUrl } from './src/lib/url';
 import {
+  loadDraftUrl,
   loadFloatingEnabled,
   loadSnapshots,
   loadUserMode,
+  saveDraftUrl,
   saveFloatingEnabled,
   saveSnapshots,
   saveUserMode,
@@ -60,6 +63,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [manualFetching, setManualFetching] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
   const [notice, setNotice] = useState<Notice | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [aiSettings, setAISettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
@@ -72,6 +76,9 @@ export default function App() {
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeIdRef = useRef(0);
   const pendingEnableRef = useRef(false);
+  const urlInputRef = useRef('');
+  const lastClipboardRef = useRef('');
+  const wentBackgroundRef = useRef(false);
   const aiSettingsRef = useRef<AISettings>(DEFAULT_AI_SETTINGS);
 
   const topInset = Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0;
@@ -281,6 +288,10 @@ export default function App() {
         });
         return;
       }
+      lastClipboardRef.current = text;
+      urlInputRef.current = text;
+      setUrlInput(text);
+      void saveDraftUrl(text);
       await saveSnapshotFromText(text);
     } catch {
       Alert.alert('读取剪贴板失败', '请确认 App 在前台，并允许读取剪贴板后重试。');
@@ -289,15 +300,75 @@ export default function App() {
     }
   }, [manualFetching, saveSnapshotFromText, showNotice]);
 
+  const handleTypedFetch = useCallback(async () => {
+    const text = urlInputRef.current.trim();
+    if (!text) {
+      showNotice({
+        kind: 'info',
+        title: '还没有链接',
+        message: '粘贴一个网页链接，或先点「从剪贴板抓取」。',
+      });
+      return;
+    }
+    if (manualFetching) return;
+    setManualFetching(true);
+    try {
+      await saveSnapshotFromText(text);
+    } catch {
+      Alert.alert('抓取失败', '抓取过程中出现异常，请稍后重试。');
+    } finally {
+      setManualFetching(false);
+    }
+  }, [manualFetching, saveSnapshotFromText, showNotice]);
+
+  // 回到前台自动检测剪贴板；退到后台时保存 URL 草稿和快照。
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background') {
+        wentBackgroundRef.current = true;
+        void saveDraftUrl(urlInputRef.current);
+        void saveSnapshots(snapshotsRef.current);
+        return;
+      }
+      if (nextState !== 'active' || !wentBackgroundRef.current) return;
+      wentBackgroundRef.current = false;
+      (async () => {
+        try {
+          const text = (await Clipboard.getStringAsync()).trim();
+          if (!text || text === lastClipboardRef.current) return;
+          lastClipboardRef.current = text;
+          if (!extractSourceUrl(text)) return;
+
+          urlInputRef.current = text;
+          setUrlInput(text);
+          void saveDraftUrl(text);
+          Alert.alert('检测到新链接', '已填入抓取框，是否立即抓取？', [
+            { text: '稍后', style: 'cancel' },
+            { text: '抓取', onPress: () => void saveSnapshotFromText(text) },
+          ]);
+        } catch {
+          // 系统不允许后台恢复时读取剪贴板，静默即可。
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, [saveSnapshotFromText]);
+
   // 首次加载：恢复本地列表与悬浮窗状态。
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [stored, floatingPref] = await Promise.all([loadSnapshots(), loadFloatingEnabled()]);
+      const [stored, floatingPref, draftUrl] = await Promise.all([
+        loadSnapshots(),
+        loadFloatingEnabled(),
+        loadDraftUrl(),
+      ]);
       if (cancelled) return;
 
       snapshotsRef.current = stored;
       setSnapshots(stored);
+      urlInputRef.current = draftUrl;
+      setUrlInput(draftUrl);
       setLoaded(true);
 
       if (!floatingPref) return;
@@ -576,6 +647,44 @@ export default function App() {
               </Pressable>
             ) : null}
 
+            <View
+              style={[
+                styles.inputCard,
+                { backgroundColor: palette.surface, borderColor: palette.border },
+              ]}
+            >
+              <TextInput
+                value={urlInput}
+                onChangeText={(value) => {
+                  setUrlInput(value);
+                  urlInputRef.current = value;
+                  void saveDraftUrl(value);
+                }}
+                onSubmitEditing={() => void handleTypedFetch()}
+                placeholder="粘贴网页链接"
+                placeholderTextColor={palette.textSecondary}
+                selectionColor={palette.accent}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                returnKeyType="go"
+                editable={!manualFetching}
+                style={[styles.urlInput, { color: palette.text }]}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="抓取输入的链接"
+                disabled={manualFetching}
+                onPress={() => void handleTypedFetch()}
+                style={({ pressed }) => [
+                  styles.urlFetchButton,
+                  { backgroundColor: palette.accent, opacity: manualFetching ? 0.55 : pressed ? 0.75 : 1 },
+                ]}
+              >
+                <Text style={styles.urlFetchText}>{manualFetching ? '…' : '抓取'}</Text>
+              </Pressable>
+            </View>
+
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="从剪贴板抓取"
@@ -776,6 +885,36 @@ const styles = StyleSheet.create({
   enableAction: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  inputCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingLeft: 14,
+    paddingRight: 6,
+    paddingVertical: 6,
+    marginBottom: 10,
+  },
+  urlInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 38,
+    fontSize: 14,
+    paddingVertical: 6,
+  },
+  urlFetchButton: {
+    minWidth: 62,
+    minHeight: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  urlFetchText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   manualCard: {
     flexDirection: 'row',

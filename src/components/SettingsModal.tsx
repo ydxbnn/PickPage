@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -95,6 +96,30 @@ export default function SettingsModal({
       setSaving(false);
     }
   };
+
+  // 系统在后台杀进程前，把手里的设置尽快写入安全存储。
+  useEffect(() => {
+    if (!visible) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'background') return;
+      const next: AISettings = {
+        apiKey: apiKey.trim(),
+        baseUrl: baseUrl.trim() || DEFAULT_AI_SETTINGS.baseUrl,
+        model: model.trim() || DEFAULT_AI_SETTINGS.model,
+      };
+      try {
+        if (next.apiKey) buildChatCompletionsUrl(next.baseUrl);
+      } catch {
+        return;
+      }
+      void saveAISettings(next)
+        .then(() => onSaved(next))
+        .catch(() => {
+          // 后台自动保存失败时保留用户手动保存入口
+        });
+    });
+    return () => sub.remove();
+  }, [apiKey, baseUrl, model, onSaved, visible]);
 
   return (
     <Modal
