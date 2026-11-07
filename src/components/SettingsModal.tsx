@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StatusBar as RNStatusBar,
+  Switch,
   StyleSheet,
   Text,
   TextInput,
@@ -29,6 +30,8 @@ type Props = {
   palette: Palette;
   initialSettings: AISettings;
   userMode: UserMode | null;
+  minimalMode: boolean;
+  onToggleMinimalMode: (enabled: boolean) => void;
   onSelectMode: (mode: UserMode) => void;
   onOpenFaq: () => void;
   onClose: () => void;
@@ -43,6 +46,8 @@ export default function SettingsModal({
   palette,
   initialSettings,
   userMode,
+  minimalMode,
+  onToggleMinimalMode,
   onSelectMode,
   onOpenFaq,
   onClose,
@@ -152,11 +157,34 @@ export default function SettingsModal({
           </Pressable>
         </View>
 
+        {!minimalMode ? (
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <View
+            style={[
+              styles.minimalToggleCard,
+              { backgroundColor: palette.surface, borderColor: palette.border },
+            ]}
+          >
+            <View style={styles.minimalToggleText}>
+              <Text style={[styles.minimalToggleTitle, { color: palette.text }]}>
+                极简模式（极简版 UI）
+              </Text>
+              <Text style={[styles.minimalToggleDesc, { color: palette.textSecondary }]}>
+                只保留一键读取剪贴板和总结结果
+              </Text>
+            </View>
+            <Switch
+              value={minimalMode}
+              onValueChange={onToggleMinimalMode}
+              trackColor={{ false: palette.border, true: palette.accent }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor={palette.border}
+            />
+          </View>
           <View
             style={[
               styles.heroCard,
@@ -344,6 +372,87 @@ export default function SettingsModal({
             API Key 留空时，抓取和快照仍可正常使用，但不会调用大模型。
           </Text>
         </ScrollView>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+          <View
+            style={[
+              styles.minimalToggleCard,
+              { backgroundColor: palette.surface, borderColor: palette.border },
+            ]}
+          >
+            <View style={styles.minimalToggleText}>
+              <Text style={[styles.minimalToggleTitle, { color: palette.text }]}>
+                极简模式（极简版 UI）
+              </Text>
+              <Text style={[styles.minimalToggleDesc, { color: palette.textSecondary }]}>
+                只保留一键读取剪贴板和总结结果
+              </Text>
+            </View>
+            <Switch
+              value={minimalMode}
+              onValueChange={onToggleMinimalMode}
+              trackColor={{ false: palette.border, true: palette.accent }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor={palette.border}
+            />
+          </View>
+
+            <Text style={[styles.sectionLabel, { color: palette.textSecondary }]}>
+              API KEY（安全存储）
+            </Text>
+            <View
+              style={[
+                styles.inputWrap,
+                { backgroundColor: palette.surface, borderColor: palette.border },
+              ]}
+            >
+              <TextInput
+                value={apiKey}
+                onChangeText={setApiKey}
+                placeholder="sk-..."
+                placeholderTextColor={palette.textSecondary}
+                secureTextEntry={!showKey}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.keyInput, { color: palette.text }]}
+              />
+              <Pressable
+                onPress={() => setShowKey((previous) => !previous)}
+                hitSlop={10}
+                style={styles.showKeyButton}
+              >
+                <Text style={[styles.showKeyText, { color: palette.accent }]}>
+                  {showKey ? '隐藏' : '显示'}
+                </Text>
+              </Pressable>
+            </View>
+            <Text style={[styles.helper, { color: palette.textSecondary }]}>
+              Key 存在系统加密存储中。默认接口已填好 DeepSeek，只需要填这一次 Key。
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void handleSave()}
+              disabled={saving}
+              style={({ pressed }) => [
+                styles.saveButton,
+                {
+                  backgroundColor: palette.accent,
+                  opacity: saving ? 0.6 : pressed ? 0.8 : 1,
+                },
+              ]}
+            >
+              {saving ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.saveButtonText}>保存并开始</Text>
+              )}
+            </Pressable>
+          </ScrollView>
+        )}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -387,6 +496,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 44,
+  },
+  minimalToggleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  minimalToggleText: {
+    flex: 1,
+  },
+  minimalToggleTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  minimalToggleDesc: {
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 3,
   },
   heroCard: {
     borderRadius: 18,

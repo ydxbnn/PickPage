@@ -35,10 +35,12 @@ import { checkUrlAlive, createPendingSnapshot, extractSourceUrl } from './src/li
 import {
   loadDraftUrl,
   loadFloatingEnabled,
+  loadMinimalMode,
   loadSnapshots,
   loadUserMode,
   saveDraftUrl,
   saveFloatingEnabled,
+  saveMinimalMode,
   saveSnapshots,
   saveUserMode,
 } from './src/storage';
@@ -64,6 +66,7 @@ export default function App() {
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [manualFetching, setManualFetching] = useState(false);
   const [urlInput, setUrlInput] = useState('');
+  const [minimalMode, setMinimalMode] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [aiSettings, setAISettings] = useState<AISettings>(DEFAULT_AI_SETTINGS);
@@ -174,6 +177,12 @@ export default function App() {
       setFaqTutorialOpen(true);
       setFaqVisible(true);
     }
+  }, []);
+
+  const handleToggleMinimalMode = useCallback((enabled: boolean) => {
+    setMinimalMode(enabled);
+    setFaqVisible(false);
+    void saveMinimalMode(enabled);
   }, []);
 
   const openFaq = useCallback((tutorialOpen = false) => {
@@ -344,7 +353,14 @@ export default function App() {
           void saveDraftUrl(text);
           Alert.alert('检测到新链接', '已填入抓取框，是否立即抓取？', [
             { text: '稍后', style: 'cancel' },
-            { text: '抓取', onPress: () => void saveSnapshotFromText(text) },
+            {
+              text: '抓取',
+              onPress: () => {
+                void saveSnapshotFromText(text).catch(() => {
+                  Alert.alert('抓取失败', '抓取过程中出现异常，请重试。');
+                });
+              },
+            },
           ]);
         } catch {
           // 系统不允许后台恢复时读取剪贴板，静默即可。
@@ -358,10 +374,11 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [stored, floatingPref, draftUrl] = await Promise.all([
+      const [stored, floatingPref, draftUrl, minimalPref] = await Promise.all([
         loadSnapshots(),
         loadFloatingEnabled(),
         loadDraftUrl(),
+        loadMinimalMode(),
       ]);
       if (cancelled) return;
 
@@ -369,6 +386,7 @@ export default function App() {
       setSnapshots(stored);
       urlInputRef.current = draftUrl;
       setUrlInput(draftUrl);
+      setMinimalMode(minimalPref);
       setLoaded(true);
 
       if (!floatingPref) return;
@@ -556,6 +574,18 @@ export default function App() {
     [commitSnapshots],
   );
 
+  const latestSnapshot = snapshots[0] ?? null;
+  const minimalSummary = latestSnapshot
+    ? latestSnapshot.aiState === 'loading'
+      ? '正在生成总结…'
+      : latestSnapshot.aiState === 'error'
+        ? latestSnapshot.aiError || '总结失败，可以再试一次。'
+        : latestSnapshot.aiSummary ||
+          latestSnapshot.pageSummary ||
+          latestSnapshot.serviceMessage ||
+          '正在准备内容…'
+    : '复制网页链接后，点上面的按钮开始。';
+
   return (
     <View style={[styles.root, { backgroundColor: palette.background }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
@@ -585,6 +615,7 @@ export default function App() {
             <Text style={[styles.settingsIcon, { color: palette.text }]}>⚙</Text>
           </Pressable>
 
+          {!minimalMode ? (
           <Pressable
             accessibilityRole="switch"
             accessibilityState={{ checked: floatingEnabled }}
@@ -613,10 +644,66 @@ export default function App() {
             >
               悬浮窗 {floatingEnabled ? '开' : '关'}
             </Text>
-          </Pressable>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
+      {minimalMode ? (
+        <View style={styles.minimalContent}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="一键读取剪贴板并总结"
+            disabled={manualFetching}
+            onPress={() => void handleClipboardFetch()}
+            style={({ pressed }) => [
+              styles.minimalMainButton,
+              {
+                backgroundColor: palette.accent,
+                opacity: manualFetching ? 0.6 : pressed ? 0.82 : 1,
+              },
+            ]}
+          >
+            <Text style={styles.minimalMainTitle}>
+              {manualFetching ? '正在读取并总结…' : '一键读取剪贴板并总结'}
+            </Text>
+            <Text style={styles.minimalMainDesc}>
+              复制网页链接后点这里，剩下的交给拾页
+            </Text>
+          </Pressable>
+
+          {!hasAIConfig(aiSettings) ? (
+            <Pressable
+              onPress={() => setSettingsVisible(true)}
+              style={({ pressed }) => [
+                styles.minimalKeyHint,
+                { backgroundColor: palette.surface, borderColor: palette.border, opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={[styles.minimalKeyHintText, { color: palette.accent }]}>
+                先去设置填一次 API Key → 默认已填好 DeepSeek
+              </Text>
+            </Pressable>
+          ) : null}
+
+          <View
+            style={[
+              styles.minimalResult,
+              { backgroundColor: palette.surface, borderColor: palette.border },
+            ]}
+          >
+            <Text style={[styles.minimalResultLabel, { color: palette.textSecondary }]}>
+              最近一次总结
+            </Text>
+            <Text style={[styles.minimalResultTitle, { color: palette.text }]} numberOfLines={2}>
+              {latestSnapshot?.title || '还没有内容'}
+            </Text>
+            <Text style={[styles.minimalResultText, { color: palette.textSecondary }]} numberOfLines={12}>
+              {minimalSummary}
+            </Text>
+          </View>
+        </View>
+      ) : (
       <FlatList
         data={snapshots}
         keyExtractor={(item) => item.id}
@@ -753,6 +840,8 @@ export default function App() {
           ) : undefined
         }
       />
+      )}
+
 
       {notice ? (
         <NoticeBanner
@@ -781,6 +870,8 @@ export default function App() {
         palette={palette}
         initialSettings={aiSettings}
         userMode={userMode}
+        minimalMode={minimalMode}
+        onToggleMinimalMode={handleToggleMinimalMode}
         onSelectMode={(mode) => void handleSelectMode(mode)}
         onOpenFaq={() => {
           setSettingsVisible(false);
@@ -855,6 +946,75 @@ const styles = StyleSheet.create({
   floatingText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  minimalContent: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 26,
+  },
+  minimalMainButton: {
+    minHeight: 210,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    elevation: 6,
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  minimalMainTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  minimalMainDesc: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  minimalKeyHint: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    marginTop: 12,
+  },
+  minimalKeyHintText: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  minimalResult: {
+    flex: 1,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    marginTop: 16,
+  },
+  minimalResultLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  minimalResultTitle: {
+    fontSize: 18,
+    lineHeight: 25,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+  minimalResultText: {
+    fontSize: 13,
+    lineHeight: 22,
+    marginTop: 10,
   },
   listContent: {
     paddingHorizontal: 18,

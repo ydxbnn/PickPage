@@ -6,6 +6,7 @@ const SNAPSHOTS_KEY = '@pickpage/snapshots/v1';
 const FLOATING_KEY = '@pickpage/floating_enabled/v1';
 const USER_MODE_KEY = '@pickpage/user_mode/v1';
 const DRAFT_URL_KEY = '@pickpage/draft_url/v1';
+const MINIMAL_MODE_KEY = '@pickpage/minimal_mode/v1';
 
 function isSnapshot(value: unknown): value is Snapshot {
   if (!value || typeof value !== 'object') return false;
@@ -97,5 +98,22 @@ export async function saveDraftUrl(value: string): Promise<void> {
     else await AsyncStorage.removeItem(DRAFT_URL_KEY);
   } catch {
     // 草稿写入失败不影响主流程
+  }
+}
+
+
+export async function loadMinimalMode(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(MINIMAL_MODE_KEY)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export async function saveMinimalMode(enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(MINIMAL_MODE_KEY, enabled ? '1' : '0');
+  } catch {
+    // 忽略
   }
 }
